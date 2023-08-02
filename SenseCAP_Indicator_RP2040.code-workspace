@@ -1,8 +1,12 @@
 {
 	"folders": [
 		{
+			"path": "examples\\indicator_rp2040"
+		},
+		{
 			"path": "."
 		}
 	],
-	"settings": {}
+	"settings": {
+	}
 }
