@@ -40,6 +40,8 @@ String SDDataString = "";
 #define PKT_TYPE_SENSOR_SHT41_TEMP 0XB3
 #define PKT_TYPE_SENSOR_SHT41_HUMIDITY 0XB4
 #define PKT_TYPE_SENSOR_TVOC_INDEX 0XB5
+#define PKT_TYPE_SENSOR_DPS310_PA 0XB6
+
 #define PKT_TYPE_CMD_COLLECT_INTERVAL 0xA0
 #define PKT_TYPE_CMD_BEEP_ON 0xA1
 #define PKT_TYPE_CMD_SHUTDOWN 0xA3
@@ -298,6 +300,7 @@ void sensor_scd4x_get(void) {
     SDDataString += ',';
     SDDataString += String(humidity);
     SDDataString += ',';
+    
 
 
     sensor_data_send(PKT_TYPE_SENSOR_SCD41_CO2, (float)co2);  //todo
@@ -364,6 +367,43 @@ void onPacketReceived(const uint8_t *buffer, size_t size) {
       break;
   }
 }
+/********************************************************************/
+bool isActiveDPS310 = true;
+float m_AtmosphericPressure = 0.0;
+float testAddSub = 10.0;
+/********************************************************************/
+void DPS310Init(){
+  isActiveDPS310 = false;
+  m_AtmosphericPressure = 900.0;
+}
+bool GetDPS310(){
+  return true;
+}
+/********************************************************************/
+void DPS310Update(){
+  isActiveDPS310 = GetDPS310();
+  // test send
+  if(isActiveDPS310)
+  {
+    //SDDataString += "atmospheric pressure =";
+    //SDDataString += String(m_AtmosphericPressure);
+    Serial.print("test send PA: ");
+    Serial.println(m_AtmosphericPressure);
+    sensor_data_send(PKT_TYPE_SENSOR_DPS310_PA, (float)m_AtmosphericPressure);
+    m_AtmosphericPressure += testAddSub;
+    if(m_AtmosphericPressure < 800){
+      testAddSub = -testAddSub;
+    }
+    else if(m_AtmosphericPressure > 1200){
+      testAddSub = -testAddSub;
+    }
+  }
+  else{
+    //SDDataString += "error atmospheric pressure";
+    //Serial.println("test send error PA");
+  }
+}
+
 
 /************************ setuo & loop ****************************/
 
@@ -432,10 +472,13 @@ void setup() {
   beep_on();
 
   Serial.printf(SENSECAP, VERSION);
+
+  DPS310Init();
+
 }
 
 void loop() {
-  if (i > 500) {
+  if (i > 200) {
     i = 0;
 
     SDDataString = "";
@@ -448,6 +491,7 @@ void loop() {
     sensor_aht_get();
     sensor_sgp40_get();
     sensor_scd4x_get();
+    DPS310Update();
     grove_adc_get();
 
     if (sd_init_flag) {
@@ -462,6 +506,9 @@ void loop() {
       } else {
         Serial.println("error opening datalog.txt");
       }
+    }
+    else{
+        //Serial.println("Not Open SD Card");
     }
   }
 
