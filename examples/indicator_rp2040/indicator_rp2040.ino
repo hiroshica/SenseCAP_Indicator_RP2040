@@ -368,28 +368,44 @@ void onPacketReceived(const uint8_t *buffer, size_t size) {
   }
 }
 /********************************************************************/
+#include <Adafruit_DPS310.h>
+
 bool isActiveDPS310 = true;
 float m_AtmosphericPressure = 0.0;
 float testAddSub = 10.0;
+Adafruit_DPS310 dps;
+Adafruit_Sensor *dps_temp = dps.getTemperatureSensor();
+Adafruit_Sensor *dps_pressure = dps.getPressureSensor();
 /********************************************************************/
 void DPS310Init(){
   isActiveDPS310 = false;
   m_AtmosphericPressure = 900.0;
-}
-bool GetDPS310(){
-  return true;
+
+  if(dps.pressureAvailable())
+  {
+    // Setup highest precision
+    dps.configurePressure(DPS310_64HZ, DPS310_64SAMPLES);
+    dps.configureTemperature(DPS310_64HZ, DPS310_64SAMPLES);
+
+    dps_temp->printSensorDetails();
+    dps_pressure->printSensorDetails();  
+  }
 }
 /********************************************************************/
 void DPS310Update(){
-  isActiveDPS310 = GetDPS310();
+  isActiveDPS310 = dps.pressureAvailable();
   // test send
   if(isActiveDPS310)
   {
-    //SDDataString += "atmospheric pressure =";
-    //SDDataString += String(m_AtmosphericPressure);
-    Serial.print("test send PA: ");
+    sensors_event_t temp_event, pressure_event;
+    dps_pressure->getEvent(&pressure_event);
+    m_AtmosphericPressure = pressure_event.pressure;
+    Serial.print("DSP310 hPa: ");
     Serial.println(m_AtmosphericPressure);
-    sensor_data_send(PKT_TYPE_SENSOR_DPS310_PA, (float)m_AtmosphericPressure);
+  }
+  else{
+    Serial.print("test send hPA: ");
+    Serial.println(m_AtmosphericPressure);
     m_AtmosphericPressure += testAddSub;
     if(m_AtmosphericPressure < 800){
       testAddSub = -testAddSub;
@@ -398,10 +414,7 @@ void DPS310Update(){
       testAddSub = -testAddSub;
     }
   }
-  else{
-    //SDDataString += "error atmospheric pressure";
-    //Serial.println("test send error PA");
-  }
+  sensor_data_send(PKT_TYPE_SENSOR_DPS310_PA, (float)m_AtmosphericPressure);
 }
 
 
@@ -478,7 +491,7 @@ void setup() {
 }
 
 void loop() {
-  if (i > 200) {
+  if (i > 300) {
     i = 0;
 
     SDDataString = "";
