@@ -8,6 +8,7 @@
 #include <SD.h>
 #include <PacketSerial.h>
 #include "AHT20.h"
+#include <Adafruit_DPS310.h>
 
 #define DEBUG 0
 
@@ -106,18 +107,22 @@ uint16_t defaultCompenstaionT = 0x6666;
 uint16_t compensationRh = defaultCompenstaionRh;
 uint16_t compensationT = defaultCompenstaionT;
 
+uint16_t latest_co2;
+float latest_temperature, latest_humidity;
+
+
+bool isAHTActive;
 /************************ aht  temp & humidity ****************************/
 
 void sensor_aht_init(void) {
   AHT.begin();
 }
-
-void sensor_aht_get(void) {
-
+void sensor_aht_update(void) {
   float humi, temp;
 
   int ret = AHT.getSensor(&humi, &temp);
-  if (ret)  // GET DATA OK
+  isAHTActive = ret;
+  if (isAHTActive)  // GET DATA OK
   {
     Serial.print("humidity: ");
     Serial.print(humi * 100);
@@ -127,6 +132,8 @@ void sensor_aht_get(void) {
     humidity = humi * 100;
     compensationT = static_cast<uint16_t>((temperature + 45) * 65535 / 175);
     compensationRh = static_cast<uint16_t>(humidity * 65535 / 100);
+    latest_temperature = temperature;
+    latest_humidity = humidity;
   } else  // GET DATA FAIL
   {
     Serial.println("GET DATA FROM AHT20 FAIL");
@@ -135,14 +142,12 @@ void sensor_aht_get(void) {
   }
 
   SDDataString += "aht20,";
-  if (ret) {
+  if (isAHTActive)  // GET DATA OK
+  {
     SDDataString += String(temperature);
     SDDataString += ',';
     SDDataString += String(humidity);
     SDDataString += ',';
-
-    sensor_data_send(PKT_TYPE_SENSOR_SHT41_TEMP, temperature);
-    sensor_data_send(PKT_TYPE_SENSOR_SHT41_HUMIDITY, humidity);
   } else {
     SDDataString += "-,-,";
   }
@@ -226,6 +231,9 @@ void sensor_sgp40_get(void) {
 
 
 /************************ scd4x  co2 ****************************/
+uint16_t isSCD4xActive;
+uint16_t scd4x_co2;
+float scd4x_temperature, scd4x_humidity;
 
 void sensor_scd4x_init(void) {
   uint16_t error;
@@ -262,48 +270,42 @@ void sensor_scd4x_init(void) {
   }
   // scd4x.powerDown();
 }
+void sensor_scd4x_update(void) {
+  isSCD4xActive = scd4x.readMeasurement(scd4x_co2, scd4x_temperature, scd4x_humidity);
+  latest_co2 = scd4x_co2;
+  latest_temperature = scd4x_temperature;
+  latest_humidity = scd4x_humidity;
 
-void sensor_scd4x_get(void) {
-  uint16_t error;
   char errorMessage[256];
-
   Serial.print("sensor scd4x: ");
   // Read Measurement
-  uint16_t co2;
-  float temperature;
-  float humidity;
-  error = scd4x.readMeasurement(co2, temperature, humidity);
-  if (error) {
+  if (isSCD4xActive) {
     Serial.print("Error trying to execute readMeasurement(): ");
-    errorToString(error, errorMessage, 256);
+    errorToString(isSCD4xActive, errorMessage, 256);
     Serial.println(errorMessage);
-  } else if (co2 == 0) {
+  } else if (scd4x_co2 == 0) {
     Serial.println("Invalid sample detected, skipping.");
   } else {
     Serial.print("Co2:");
-    Serial.print(co2);
+    Serial.print(scd4x_co2);
     Serial.print("\t");
     Serial.print("Temperature:");
-    Serial.print(temperature);
+    Serial.print(scd4x_temperature);
     Serial.print("\t");
     Serial.print("Humidity:");
-    Serial.println(humidity);
+    Serial.println(scd4x_humidity);
   }
 
   SDDataString += "scd4x,";
-  if (error) {
+  if (isSCD4xActive) {
     SDDataString += "-,-,-,";
   } else {
-    SDDataString += String(co2);
+    SDDataString += String(scd4x_co2);
     SDDataString += ',';
-    SDDataString += String(temperature);
+    SDDataString += String(scd4x_temperature);
     SDDataString += ',';
-    SDDataString += String(humidity);
+    SDDataString += String(scd4x_humidity);
     SDDataString += ',';
-    
-
-
-    sensor_data_send(PKT_TYPE_SENSOR_SCD41_CO2, (float)co2);  //todo
   }
 }
 
@@ -368,55 +370,51 @@ void onPacketReceived(const uint8_t *buffer, size_t size) {
   }
 }
 /********************************************************************/
-#include <Adafruit_DPS310.h>
-
-bool isActiveDPS310 = true;
 float m_AtmosphericPressure = 0.0;
+float dps310Temp = 0;
 float testAddSub = 10.0;
 Adafruit_DPS310 dps;
 Adafruit_Sensor *dps_temp = dps.getTemperatureSensor();
 Adafruit_Sensor *dps_pressure = dps.getPressureSensor();
 /********************************************************************/
-void DPS310Init(){
-  isActiveDPS310 = false;
-  m_AtmosphericPressure = 900.0;
+void DPS310Init() {
+  Serial.print(" Init check DSP310");
+  Serial.print("============================================================================================================");
+  delay(10);
 
-  if(dps.pressureAvailable())
-  {
+  if (dps.begin_I2C()) {
+    Serial.print(" Init start DSP310");
     // Setup highest precision
     dps.configurePressure(DPS310_64HZ, DPS310_64SAMPLES);
     dps.configureTemperature(DPS310_64HZ, DPS310_64SAMPLES);
-
     dps_temp->printSensorDetails();
-    dps_pressure->printSensorDetails();  
+    dps_pressure->printSensorDetails();
+  } else {
+    Serial.println("Failed to find DPS");
   }
 }
 /********************************************************************/
-void DPS310Update(){
-  isActiveDPS310 = dps.pressureAvailable();
+void DPS310Update() {
+
   // test send
-  if(isActiveDPS310)
-  {
+  if (dps.pressureAvailable()) {
     sensors_event_t temp_event, pressure_event;
     dps_pressure->getEvent(&pressure_event);
     m_AtmosphericPressure = pressure_event.pressure;
-    Serial.print("DSP310 hPa: ");
-    Serial.println(m_AtmosphericPressure);
-  }
-  else{
-    Serial.print("test send hPA: ");
-    Serial.println(m_AtmosphericPressure);
-    m_AtmosphericPressure += testAddSub;
-    if(m_AtmosphericPressure < 800){
-      testAddSub = -testAddSub;
+    dps_temp->getEvent(&temp_event);
+    dps310Temp = temp_event.temperature;
+    if (!isAHTActive){
+      latest_temperature = dps310Temp;
     }
-    else if(m_AtmosphericPressure > 1200){
-      testAddSub = -testAddSub;
-    }
+  } else {
+    m_AtmosphericPressure = 898989.0;
   }
-  sensor_data_send(PKT_TYPE_SENSOR_DPS310_PA, (float)m_AtmosphericPressure);
+  //sensor_data_send(PKT_TYPE_SENSOR_SHT41_TEMP, dps310Temp);
+  Serial.print("  DSP310 hPa: ");
+  Serial.println(m_AtmosphericPressure);
+  Serial.print("  temp: ");
+  Serial.println(dps310Temp);
 }
-
 
 /************************ setuo & loop ****************************/
 
@@ -435,6 +433,7 @@ void setup() {
 
   sensor_power_on();
 
+  // i2c init
   Wire.setSDA(20);
   Wire.setSCL(21);
   Wire.begin();
@@ -454,6 +453,7 @@ void setup() {
   sensor_aht_init();
   sensor_sgp40_init();
   sensor_scd4x_init();
+  DPS310Init();
 
   int32_t index_offset;
   int32_t learning_time_offset_hours;
@@ -485,9 +485,6 @@ void setup() {
   beep_on();
 
   Serial.printf(SENSECAP, VERSION);
-
-  DPS310Init();
-
 }
 
 void loop() {
@@ -501,11 +498,17 @@ void loop() {
     SDDataString += ',';
 
     cnt++;
-    sensor_aht_get();
-    sensor_sgp40_get();
-    sensor_scd4x_get();
+    sensor_scd4x_update();
+    sensor_aht_update();
     DPS310Update();
+    sensor_sgp40_get();
     grove_adc_get();
+
+    sensor_data_send(PKT_TYPE_SENSOR_SCD41_CO2, (float)latest_co2);  //todo
+    sensor_data_send(PKT_TYPE_SENSOR_SHT41_TEMP, latest_temperature);
+    sensor_data_send(PKT_TYPE_SENSOR_SHT41_HUMIDITY, latest_humidity);
+    sensor_data_send(PKT_TYPE_SENSOR_DPS310_PA, m_AtmosphericPressure);
+
 
     if (sd_init_flag) {
       File dataFile = SD.open("datalog.csv", FILE_WRITE);
@@ -519,9 +522,8 @@ void loop() {
       } else {
         Serial.println("error opening datalog.txt");
       }
-    }
-    else{
-        //Serial.println("Not Open SD Card");
+    } else {
+      //Serial.println("Not Open SD Card");
     }
   }
 
