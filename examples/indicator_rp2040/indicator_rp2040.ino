@@ -325,7 +325,7 @@ void beep_on(void) {
   analogWrite(Buzzer, 0);
 }
 
-
+bool beep_call = false;
 
 /************************ grove  ****************************/
 
@@ -363,6 +363,11 @@ void onPacketReceived(const uint8_t *buffer, size_t size) {
         Serial.println("cmd shutdown");
         shutdown_flag = true;
         sensor_power_off();
+        break;
+      }
+    case PKT_TYPE_CMD_BEEP_ON:
+      {
+        beep_call = true;
         break;
       }
     default:
@@ -421,6 +426,7 @@ void DPS310Update() {
 int cnt = 0;
 int i = 0;
 bool sd_init_flag = 0;
+#define Buzzer  19 //Buzzer GPIO 
 
 void setup() {
   Serial.begin(115200);
@@ -449,6 +455,11 @@ void setup() {
     Serial.println("card initialized.");
     sd_init_flag = 1;
   }
+  //digitalWrite(Buzzer, OUTPUT);
+  //analogWrite(Buzzer, 127);   //generates pwm of 50% duty cycle
+
+  //delay(1000);
+  //digitalWrite(Buzzer, LOW); //OFF
 
   sensor_aht_init();
   sensor_sgp40_init();
@@ -487,7 +498,38 @@ void setup() {
   Serial.printf(SENSECAP, VERSION);
 }
 
+static int beep_table[][2] = {
+  127,50,
+  0,50,
+  127,50,
+  0,50,
+  127,50*3,
+};
+static int beep_max = (sizeof(beep_table) / sizeof(int)) / 2;
+static int beep_index = 0;
+static int beep_wait = 0;
 void loop() {
+  //Serial.printf("Max = %d-------\r\n", beep_max);
+
+  if(beep_call){
+    if(beep_wait <= 0)
+    {
+      if(beep_index > beep_max){
+        beep_call = false;
+        analogWrite(Buzzer, 0);
+      }
+      else{
+        int beepdata = beep_table[beep_index][0];
+        beep_wait  = beep_table[beep_index][1];
+        analogWrite(Buzzer, beepdata);
+        beep_index++;
+      }
+    }
+    else{
+      beep_wait--;
+    }
+  }
+
   if (i > 300) {
     i = 0;
 
